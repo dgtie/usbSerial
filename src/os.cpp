@@ -45,6 +45,7 @@ void poll(unsigned);
 void init(void) {
   __builtin_disable_interrupts();
   _CP0_SET_COMPARE(MS);
+  _CP0_SET_COMPARE(MS);
   SYSKEY = 0;                       // ensure OSCCON is locked
   SYSKEY = 0xAA996655;              // unlock sequence
   SYSKEY = 0x556699AA;
@@ -72,13 +73,13 @@ void init(void) {
 
 namespace {
     
-    volatile unsigned tick;
-    
-    void loop(unsigned t) {
-        static unsigned tick;
-        if (tick == t) return;
-        poll(tick = t);
-    }
+volatile unsigned tick;
+
+void loop(unsigned t) {
+  static unsigned tick;
+  if (tick == t) return;
+  poll(tick = t);
+}
     
 }//anonymous
 

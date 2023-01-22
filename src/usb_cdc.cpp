@@ -6,12 +6,13 @@
 #define SERIAL_STATE 0x20
 
 void bd_fill(int index, char *buf, int size, int stat);
+void out_buffer_handler(char *buffer, int length);
+void in_buffer_handler(int length);
+void CDCrx_reset(void);
 
 bool stop_selection(int);
 bool parity_data_selection(int p, int d);
 bool baud_selection(unsigned);
-void CDCTx(char *buffer, int length);
-void CDCRx(void);
 
 typedef struct
 {
@@ -23,51 +24,51 @@ typedef struct
 
 namespace {
     
+struct {
+    unsigned char bmRequestType;
+    unsigned char bNotification;
+    unsigned short wValue;
+    unsigned short wIndex;
+    unsigned short wLength;
     struct {
-        unsigned char bmRequestType;
-        unsigned char bNotification;
-        unsigned short wValue;
-        unsigned short wIndex;
-        unsigned short wLength;
-        struct {
-            unsigned DCD:1;
-            unsigned DSR:1;
-            unsigned break_in:1;
-            unsigned RI:1;
-            unsigned frame_err:1;
-            unsigned parity_err:1;
-            unsigned overrun_err:1;
-            unsigned reserved:1;
-            unsigned char nothing;
-        };
-    } cdc_notice_packet = { 0xa1, SERIAL_STATE, 0, 0, 2, 0 };
+        unsigned DCD:1;
+        unsigned DSR:1;
+        unsigned break_in:1;
+        unsigned RI:1;
+        unsigned frame_err:1;
+        unsigned parity_err:1;
+        unsigned overrun_err:1;
+        unsigned reserved:1;
+        unsigned char nothing;
+    };
+} cdc_notice_packet = { 0xa1, SERIAL_STATE, 0, 0, 2, 0 };
     
-    LINE_CODING line_coding = { 115200, NUM_STOP_BITS_1, PARITY_NONE, 8 };
-    char temp[8];
-    char in_buffer[2][USB_EP2_BUFF_SIZE], *rx_buffer;
-    char out_buffer[2][USB_EP2_BUFF_SIZE];
-    int rx_index;
-    
+LINE_CODING line_coding = { 115200, NUM_STOP_BITS_1, PARITY_NONE, 8 };
+char temp[8];
+char out_buffer[2][USB_EP2_BUFF_SIZE];
+int in_index, out_index;
+
+} // anonymous
+
+void CDCtx(void) {
+    bd_fill(out_index | 8, out_buffer[out_index], USB_EP2_BUFF_SIZE, out_index ? 0xc0 : 0x80);
+    out_index ^= 1;
 }
 
-char *get_CDCRx_buffer(int idx) { return in_buffer[idx]; }
-
-void CDCRx(int idx, int length) {
-    bd_fill(idx | 10, in_buffer[idx], length, idx ? 0xc0 : 0x80);
-}
-
-void CDCTx(int idx) {
-    bd_fill(idx | 8, out_buffer[idx], USB_EP2_BUFF_SIZE, idx ? 0xc0 : 0x80);
+void CDCrx(char *buffer, int length) {
+    if (length > USB_EP2_BUFF_SIZE) length = USB_EP2_BUFF_SIZE;
+    bd_fill(in_index | 10, buffer, length, in_index ? 0xc0 : 0x80);
+    in_index ^= 1;
 }
 
 void CDCInitEndpoint(int config) {
     if (config) {
         U1EP1 = 5;      // EPTXEN, EPHSHK
         U1EP2 = 0x1d;   // EPCONDIS, EPRXEN, EPTXEN, EPHSHK
-        rx_buffer = in_buffer[0];
-        rx_index = 0;
+        in_index = out_index = 0;
+        CDCrx_reset();
         bd_fill(6, (char*)&cdc_notice_packet, USB_EP1_BUFF_SIZE, 0x80);
-        bd_fill(8, out_buffer[0], USB_EP2_BUFF_SIZE, 0x80);
+        CDCtx();
     }
 }
 
@@ -76,15 +77,16 @@ void CDC_TRN_Handler(int length) {
     switch (bd) {
         case 6:
         case 7:
-            bd_fill(bd ^ 1, (char*)&cdc_notice_packet, USB_EP1_BUFF_SIZE, bd & 1 ? 0xc0 : 0x80);
+            bd_fill(bd ^ 1, (char*)&cdc_notice_packet,
+                USB_EP1_BUFF_SIZE, bd & 1 ? 0x80 : 0xc0);
             break;
         case 8:
         case 9:
-            CDCTx(out_buffer[bd & 1], length);
+            out_buffer_handler(out_buffer[bd & 1], length);
             break;
         case 10:
         case 11:
-            CDCRx();
+            in_buffer_handler(length);
             break;
         default:;
     }

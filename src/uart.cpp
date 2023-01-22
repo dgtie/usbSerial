@@ -1,15 +1,14 @@
 #include <xc.h>
 #include "uart.h"
 
-void out_handler_done(void);
-char *get_in_buffer(int &length);
-void return_in_buffer(int length);
+void uart_tx_done(void);
+void uart_rx(char);
 
 namespace {
     
     char *buffer;
     int idx, length;
-    
+
 }
 
 bool stop_selection(int i) {
@@ -37,26 +36,20 @@ bool baud_selection(unsigned b) {
 extern "C"
 void __attribute__((interrupt(ipl1soft), vector(_UART1_VECTOR), nomips16)) u1ISR(void) {
     if (IFS1bits.U1RXIF) {
-        int length;
-        char *buffer = get_in_buffer(length);
-        char c = U1RXREG;
-        if (buffer) {
-            buffer[0] = c;
-            return_in_buffer(1);
-        }
+        uart_rx(U1RXREG);
         IFS1bits.U1RXIF = 0;
     }
     if (IEC1bits.U1TXIE) if (IFS1bits.U1TXIF) {
         if (idx == length) {
             IEC1bits.U1TXIE = 0;
-            out_handler_done();
+            uart_tx_done();
         } else U1TXREG = buffer[idx++];
         IFS1bits.U1TXIF = 0;
     }
 }
 
-void out_buffer_handler(char *buf, int len) {
+void uart_tx(char *buf, int len) {
     buffer = buf; length = len; idx = 0;
     if (len) IEC1bits.U1TXIE = 1;
-    else out_handler_done();
+    else uart_tx_done();
 }
